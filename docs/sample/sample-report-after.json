@@ -1,0 +1,339 @@
+{
+  "schema": "sentinel-ai/report/1",
+  "generated_at": "2026-10-28T19:14:31Z",
+  "tool": {
+    "name": "Sentinel AI",
+    "version": "0.1.0"
+  },
+  "host": {
+    "id": "sample-host"
+  },
+  "scan": {
+    "scan_id": 2,
+    "started_at": "2026-10-28T19:14:31Z",
+    "finished_at": "2026-10-28T19:14:31Z",
+    "read_only": true,
+    "privileged": false
+  },
+  "controls": [
+    {
+      "check_id": "auth_failures",
+      "control_id": "AUTH-01",
+      "title": "Unsuccessful authentication attempts are limited and reviewed",
+      "reference": "NIST SP 800-53 Rev. 5 AC-7 (Unsuccessful Logon Attempts), AU-6 (Audit Record Review), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "0 failed authentication attempts in the last 24 hours, below the review threshold of 5.",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "/var/log/auth.log",
+          "observation": "0 failed-authentication lines in the last 24 hours"
+        }
+      ],
+      "finding_id": null
+    },
+    {
+      "check_id": "firewall",
+      "control_id": "FW-01",
+      "title": "Host firewall is enabled and denies inbound traffic by default",
+      "reference": "NIST SP 800-53 Rev. 5 SC-7 (Boundary Protection), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "UFW is enabled, its service is active and the default inbound policy is DROP. The live ruleset requires root and was not inspected, so this confirms the firewall's configured state, not the individual rules.",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "/etc/ufw/ufw.conf",
+          "observation": "ENABLED=yes"
+        },
+        {
+          "source": "systemctl is-active ufw",
+          "observation": "active"
+        },
+        {
+          "source": "ufw status",
+          "observation": "not readable without root; live rules were not inspected (exit 1)"
+        },
+        {
+          "source": "/etc/default/ufw",
+          "observation": "DEFAULT_INPUT_POLICY=DROP"
+        }
+      ],
+      "finding_id": null
+    },
+    {
+      "check_id": "listening_ports",
+      "control_id": "NET-01",
+      "title": "Only necessary network services are exposed",
+      "reference": "NIST SP 800-53 Rev. 5 CM-7 (Least Functionality), SC-7 (Boundary Protection), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "No TCP service accepts connections from other machines; every listener is bound to loopback.",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "ss -tulnHp",
+          "observation": "1 TCP listeners (0 reachable from other machines), 1 UDP sockets (1 reachable)"
+        },
+        {
+          "source": "ss -tulnHp",
+          "observation": "UDP sockets reachable on ports: 5353"
+        }
+      ],
+      "finding_id": null
+    },
+    {
+      "check_id": "security_updates",
+      "control_id": "PATCH-01",
+      "title": "Security updates are applied promptly",
+      "reference": "NIST SP 800-53 Rev. 5 SI-2 (Flaw Remediation), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "No security updates are pending according to a summary refreshed within the last 7 days.",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "/var/lib/update-notifier/updates-available",
+          "observation": "last updated 2026-10-28 12:14"
+        },
+        {
+          "source": "/var/lib/update-notifier/updates-available",
+          "observation": "updates available: 0; security updates: 0"
+        }
+      ],
+      "finding_id": null
+    },
+    {
+      "check_id": "ssh_exposure",
+      "control_id": "SSH-01",
+      "title": "SSH server exposure is known and intended",
+      "reference": "NIST SP 800-53 Rev. 5 CM-7 (Least Functionality), AC-17 (Remote Access), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "An SSH server is installed but not running: its services are inactive and nothing is listening on port 22.",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "/usr/sbin/sshd, /etc/ssh/sshd_config",
+          "observation": "an SSH server is installed"
+        },
+        {
+          "source": "systemctl is-active ssh",
+          "observation": "inactive"
+        },
+        {
+          "source": "systemctl is-active ssh.socket",
+          "observation": "inactive"
+        },
+        {
+          "source": "ss -tlnH",
+          "observation": "TCP listeners on port 22: none"
+        }
+      ],
+      "finding_id": null
+    },
+    {
+      "check_id": "ssh_hardening",
+      "control_id": "SSH-02",
+      "title": "SSH server configuration is hardened",
+      "reference": "NIST SP 800-53 Rev. 5 AC-17 (Remote Access), IA-5 (Authenticator Management), illustrative",
+      "result": "pass",
+      "severity": "info",
+      "explanation": "Root login with a password, empty passwords and password authentication are all disabled (static read of the config; Match blocks are not evaluated).",
+      "remediation": null,
+      "evidence": [
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "permitrootlogin = no (set)"
+        },
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "passwordauthentication = no (set)"
+        },
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "permitemptypasswords = no (default (not set in the file))"
+        }
+      ],
+      "finding_id": null
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-AUTH-01-0001",
+      "control_id": "AUTH-01",
+      "severity": "medium",
+      "result": "warning",
+      "status": "resolved",
+      "detected_at": "2026-10-28T16:14:31Z",
+      "last_seen_at": "2026-10-28T19:14:31Z",
+      "resolved_at": "2026-10-28T19:14:31Z",
+      "explanation": "31 failed authentication attempts in the last 24 hours. A few are normal; check that they were you.",
+      "remediation": "Review them with `grep -E 'Failed|Invalid user|authentication failure' /var/log/auth.log`.",
+      "evidence": [
+        {
+          "source": "/var/log/auth.log",
+          "observation": "31 failed-authentication lines in the last 24 hours"
+        },
+        {
+          "source": "/var/log/auth.log",
+          "observation": "by program: sshd: 31"
+        },
+        {
+          "source": "/var/log/auth.log",
+          "observation": "sample: 2026-10-28T15:11:29.000000-04:00 sample-host sshd[4100]: Failed password for invalid user admin from 203.0.113.10 port 40000 ssh2"
+        },
+        {
+          "source": "/var/log/auth.log",
+          "observation": "sample: 2026-10-28T14:54:29.000000-04:00 sample-host sshd[4101]: Failed password for invalid user <img src=x onerror=alert(1)> from 203.0.113.11 port 40001 ssh2"
+        },
+        {
+          "source": "/var/log/auth.log",
+          "observation": "sample: 2026-10-28T14:37:29.000000-04:00 sample-host sshd[4102]: Failed password for invalid user oracle from 203.0.113.12 port 40002 ssh2"
+        }
+      ]
+    },
+    {
+      "finding_id": "F-FW-01-0001",
+      "control_id": "FW-01",
+      "severity": "high",
+      "result": "fail",
+      "status": "resolved",
+      "detected_at": "2026-10-28T16:14:31Z",
+      "last_seen_at": "2026-10-28T19:14:31Z",
+      "resolved_at": "2026-10-28T19:14:31Z",
+      "explanation": "UFW is configured as disabled (ENABLED=no). The ufw service reports 'active', but an active service does not mean rules are loaded: the configuration says the firewall is not enabled, so it is treated as not enforcing.",
+      "remediation": "Allow the services you need first, then enable the firewall. For example: `sudo ufw default deny incoming`, `sudo ufw allow <service>` for anything you rely on (for SSH: `sudo ufw allow OpenSSH`), then `sudo ufw enable`. Verify with `sudo ufw status verbose`.",
+      "evidence": [
+        {
+          "source": "/etc/ufw/ufw.conf",
+          "observation": "ENABLED=no"
+        },
+        {
+          "source": "systemctl is-active ufw",
+          "observation": "active"
+        },
+        {
+          "source": "ufw status",
+          "observation": "not readable without root; live rules were not inspected (exit 1)"
+        },
+        {
+          "source": "/etc/default/ufw",
+          "observation": "DEFAULT_INPUT_POLICY=DROP"
+        }
+      ]
+    },
+    {
+      "finding_id": "F-NET-01-0001",
+      "control_id": "NET-01",
+      "severity": "high",
+      "result": "fail",
+      "status": "resolved",
+      "detected_at": "2026-10-28T16:14:31Z",
+      "last_seen_at": "2026-10-28T19:14:31Z",
+      "resolved_at": "2026-10-28T19:14:31Z",
+      "explanation": "Services that should not face the network are reachable from other machines: PostgreSQL on port 5432.",
+      "remediation": "Bind them to 127.0.0.1 in their configuration, or block them with the firewall.",
+      "evidence": [
+        {
+          "source": "ss -tulnHp",
+          "observation": "3 TCP listeners (2 reachable from other machines), 1 UDP sockets (1 reachable)"
+        },
+        {
+          "source": "ss -tulnHp",
+          "observation": "exposed: tcp 0.0.0.0:22 (sshd)"
+        },
+        {
+          "source": "ss -tulnHp",
+          "observation": "exposed: tcp 0.0.0.0:5432 (postgres)"
+        },
+        {
+          "source": "ss -tulnHp",
+          "observation": "UDP sockets reachable on ports: 5353"
+        }
+      ]
+    },
+    {
+      "finding_id": "F-SSH-01-0001",
+      "control_id": "SSH-01",
+      "severity": "low",
+      "result": "warning",
+      "status": "resolved",
+      "detected_at": "2026-10-28T16:14:31Z",
+      "last_seen_at": "2026-10-28T19:14:31Z",
+      "resolved_at": "2026-10-28T19:14:31Z",
+      "explanation": "An SSH server is running (listening on 0.0.0.0:22). That is fine if intended, but it is remote access to this machine and should be a deliberate choice.",
+      "remediation": "If you do not need remote access: `sudo systemctl disable --now ssh ssh.socket`. If you do, keep SSH-02 passing and allow it through the firewall deliberately.",
+      "evidence": [
+        {
+          "source": "/usr/sbin/sshd, /etc/ssh/sshd_config",
+          "observation": "an SSH server is installed"
+        },
+        {
+          "source": "systemctl is-active ssh",
+          "observation": "active"
+        },
+        {
+          "source": "systemctl is-active ssh.socket",
+          "observation": "inactive"
+        },
+        {
+          "source": "ss -tlnH",
+          "observation": "TCP listeners on port 22: 0.0.0.0:22"
+        }
+      ]
+    },
+    {
+      "finding_id": "F-SSH-02-0001",
+      "control_id": "SSH-02",
+      "severity": "medium",
+      "result": "warning",
+      "status": "resolved",
+      "detected_at": "2026-10-28T16:14:31Z",
+      "last_seen_at": "2026-10-28T19:14:31Z",
+      "resolved_at": "2026-10-28T19:14:31Z",
+      "explanation": "Password authentication is enabled, which exposes ssh to guessing. (static read of the config; Match blocks are not evaluated)",
+      "remediation": "Use key-based login and set `PasswordAuthentication no` in /etc/ssh/sshd_config.d/, then `sudo systemctl reload ssh`. Confirm key login works in a second session first.",
+      "evidence": [
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "permitrootlogin = prohibit-password (set)"
+        },
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "passwordauthentication = yes (set)"
+        },
+        {
+          "source": "/etc/ssh/sshd_config",
+          "observation": "permitemptypasswords = no (default (not set in the file))"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "headline": "All checks passing",
+    "detail": "6 controls checked; nothing needs attention.",
+    "counts": {
+      "pass": 6,
+      "fail": 0,
+      "warning": 0,
+      "unknown": 0,
+      "error": 0
+    },
+    "controls_total": 6,
+    "open_findings": 0
+  },
+  "limitations": [
+    "Evidence was collected read-only as an unprivileged user. Anything that needs root (the live firewall ruleset, `sshd -T`, the owning process of other users' sockets) was not inspected, and each affected control says so in its evidence.",
+    "Results describe the moment of the scan. They are a point-in-time assessment, not continuous-monitoring evidence.",
+    "Framework references are an illustrative mapping of each control, not a compliance attestation.",
+    "Every assessment, explanation and recommendation was produced by a deterministic check. No AI model generated or altered any content in this report.",
+    "The content checksum detects accidental change. It is not a digital signature and does not prove who produced the report."
+  ],
+  "integrity": {
+    "algorithm": "sha256",
+    "content_sha256": "585e61d072d09f65c5dbae9c48918ab51e265e34ccd21b0e1d450e94c5000fc7",
+    "covers": "host, scan, controls and findings (not the export time)"
+  }
+}

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sentinel AI
+GenericName=Security companion
+Comment=A pixel-duck companion that watches this machine's security posture
+Exec=sentinel-ai
+Icon=sentinel-ai
+Terminal=false
+Categories=System;Security;
+StartupNotify=false
