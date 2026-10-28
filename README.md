@@ -307,7 +307,7 @@ class Assessment:
 
 ### Worked example: when the service lies
 
-On the development machine this project was built on, `systemctl is-active ufw` said **active** while `/etc/ufw/ufw.conf` said **`ENABLED=no`**. A check that trusts the service state would have reported a working firewall. This one does not:
+On a Linux Mint machine, `systemctl is-active ufw` said **active** while `/etc/ufw/ufw.conf` said **`ENABLED=no`**. A check that trusts the service state would have reported a working firewall. This one does not:
 
 ```python
 # monitoring/checks/firewall.py
@@ -472,7 +472,7 @@ Details and the full token tables: [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.
 Requirements: Linux Mint Cinnamon on X11, Python 3.11 or newer. `wmctrl` is optional but recommended (it is how the duck is kept on every workspace); without it the app still runs, using Qt window hints only, and logs that.
 
 ```bash
-git clone <this repository> sentinel-ai && cd sentinel-ai
+git clone https://github.com/Flintstqne/sentinel-ai.git && cd sentinel-ai
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 sudo apt install wmctrl          # optional
