@@ -17,7 +17,7 @@ src/sentinel_ai/
   monitoring/
     model.py             Result, Severity, Evidence, Assessment (no PASS without evidence), Finding
     reader.py            the only door to the system: read-only Reader protocol + LocalReader
-    checks/              firewall, ssh, auth, updates, ports, and the CHECKS registry
+    checks/              firewall, ssh, auth, updates, ports, wazuh, and the CHECKS registry
     scanner.py           runs every check; a crash becomes ERROR, never a PASS
     store.py             SQLite: assessments (audit trail) and findings (lifecycle)
     reaction.py          pure: scan result -> companion state, tone, notifications
@@ -25,6 +25,8 @@ src/sentinel_ai/
     summary.py           labels, worst-first order and the lead sentence (shared by UI and reports)
     export.py            audit evidence reports: one report dict, JSON and self-contained HTML
     monitor.py           Qt: runs scans on a worker thread and on a schedule
+  ai/
+    explainer.py         opt-in local Ollama explanations; Qt-free, stdlib only, never imported by monitoring/
   platform/
     x11.py               session detection, wmctrl request + xprop verification
     motion.py            reduced-motion resolution
@@ -112,8 +114,21 @@ does not re-alarm every hour. `Monitor` runs the scan on a worker thread (the ca
 its own SQLite connection there) and delivers the result to the UI thread; a zero scan
 interval means manual only and never arms the timer.
 
-There is no AI layer, by decision: the available local models hallucinate, and an invented
-finding or a confident wrong explanation is worse than a plain deterministic one in an audit
-tool. Every explanation is written by the check that collected the evidence. The seam remains
-(observations are kept apart from interpretation, and remediation is only ever text), so a
-model could later be added as a clearly labelled, optional reader that cannot alter evidence.
+## The AI layer (optional)
+
+An earlier version had no AI by decision: the available local models hallucinate, and an
+invented finding is worse than a plain deterministic one in an audit tool. The layer added
+since uses the seam that decision left (observations kept apart from interpretation), and
+keeps every fact deterministic:
+
+```
+Dashboard --(one Assessment, on button press)--> app._ExplainJob (worker thread)
+    --> explainer.explain(): loopback-only URL check, no proxy, JSON-schema request
+    --> reply validated (shape, types, lengths) and grounding-checked against the input
+    --> AIExplanation (frozen, separate)  or  ExplanationUnavailable(reason)
+    --> Dashboard shows it as labelled plain text under the facts; dropped on the next scan
+```
+
+`monitoring/` never imports `ai/`, nothing from the model is stored, and no result,
+severity, finding or report depends on it. See the README section "AI, constrained" for the
+guardrails and what the grounding check does not catch.

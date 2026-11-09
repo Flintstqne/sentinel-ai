@@ -1,6 +1,6 @@
 # Security checks (Phase 3)
 
-Six read-only checks run as the logged-in user. Nothing is changed on the system, no
+Seven read-only checks run as the logged-in user. Nothing is changed on the system, no
 privilege is requested, and no remediation is ever executed: advice is text for a human.
 
 ## Result semantics
@@ -32,6 +32,22 @@ The framework references are an **illustrative mapping**, not a compliance claim
 | AUTH-01 (AC-7, AU-6) | Failed authentication attempts | `/var/log/auth.log` (readable via the `adm` group), else `journalctl` | Last 24 hours. Below 5 PASS, 5 to 99 WARNING, 100 or more FAIL. Evidence includes a per-program breakdown. Both ISO and classic syslog timestamps are parsed. |
 | PATCH-01 (SI-2) | Pending security updates | `/var/lib/update-notifier/updates-available` | The notifier omits the security line when there are none, so a stated total with no security line means zero. Data older than 7 days is UNKNOWN, never trusted. |
 | NET-01 (CM-7, SC-7) | Exposed network services | `ss -tulnHp` | Wildcard or non-loopback TCP listeners warn; a known-dangerous service (databases, RDP, VNC, SMB, Telnet...) is a FAIL. UDP is listed as evidence but not judged (mDNS is routinely open). |
+| SIEM-01 (SI-4, AU-6) | Recent high-level Wazuh alerts | `/var/ossec/logs/alerts/alerts.json` (readable via the `wazuh` group) | Last 24 hours. Wazuh absent, the file unreadable, or the file not written for 24 hours is **UNKNOWN**: silence from a dead feed is not a PASS. PASS needs a fresh file with no security event at level 7 or above. Configuration-assessment results (rule group `sca`, such as CIS benchmark items) are counted in the evidence but not judged: they are baseline checks, not security events, and belong to a hardening control. Repeats of one rule become one evidence line with a count, its highest level and the latest example. Alert text is attacker-influenced, so it is truncated to 160 characters, stripped of control characters and only ever shown as plain text. Unparseable lines are counted as evidence, not dropped silently. |
+
+### Wazuh rule level mapping
+
+| Wazuh `rule.level` | Result | Severity |
+|---|---|---|
+| 0-6 | counted, not judged (PASS if nothing higher) | INFO |
+| 7-9 | WARNING | LOW |
+| 10-11 | WARNING | MEDIUM |
+| 12-14 | FAIL | HIGH |
+| 15 | FAIL | CRITICAL |
+
+Installing the manager: [`WAZUH_SETUP.md`](WAZUH_SETUP.md).
+
+The highest level in the window sets the result; up to five flagged alerts are listed as
+evidence (one line per rule, worst first), each with its rule id in the source.
 
 ## Severity rubric
 

@@ -46,6 +46,11 @@ class Config:
     roam: bool = True  # wander along the desktop while idle
     scan_interval_minutes: int = 60  # 0 = only scan when asked
     notifications: bool = True
+    # Optional local-model explanations. Off by default; the address must be loopback
+    # (enforced by sentinel_ai.ai.explainer at call time, not just here).
+    ai_explanations: bool = False
+    ai_model: str = "qwen3:4b"
+    ai_url: str = "http://127.0.0.1:11434"
 
     @classmethod
     def default_path(cls) -> Path:
@@ -96,6 +101,13 @@ class Config:
         notifications = raw.get("notifications")
         if isinstance(notifications, bool):
             cfg.notifications = notifications
+        ai = raw.get("ai_explanations")
+        if isinstance(ai, bool):
+            cfg.ai_explanations = ai
+        for key in ("ai_model", "ai_url"):
+            value = raw.get(key)
+            if isinstance(value, str) and 0 < len(value) <= 200:
+                setattr(cfg, key, value)
         return cfg
 
     def save(self, path: Path | None = None) -> None:

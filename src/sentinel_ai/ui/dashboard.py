@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from sentinel_ai import __version__
+from sentinel_ai.ai.explainer import AIExplanation
 from sentinel_ai.monitoring.model import Assessment, Finding, ResolutionStatus, Result, Severity
 from sentinel_ai.monitoring.reaction import summarise
 from sentinel_ai.monitoring.store import ScanRecord
@@ -172,6 +173,7 @@ class DashboardWindow(QWidget):
     scan_requested = Signal()
     acknowledge_requested = Signal(str)  # finding_id
     export_requested = Signal()
+    explain_requested = Signal(str)  # check_id
 
     def __init__(self) -> None:
         super().__init__()
@@ -184,6 +186,10 @@ class DashboardWindow(QWidget):
         self._scanning = False
         self._selected: str | None = None
         self._rows: list[ControlRow] = []
+        self._ai_enabled = False
+        # check_id -> explanation, or a status line ("Asking...", "unavailable: why").
+        # Never stored with the assessment; dropped when a new scan arrives.
+        self._ai: dict[str, AIExplanation | str] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -343,6 +349,8 @@ class DashboardWindow(QWidget):
 
     # -- public API ----------------------------------------------------------
     def show_record(self, record: ScanRecord | None) -> None:
+        if record is None or self._record is None or record.scan_id != self._record.scan_id:
+            self._ai.clear()
         self._record = record
         self._refresh_header()
         if record is None:
@@ -352,6 +360,17 @@ class DashboardWindow(QWidget):
         self._fill_lead(record)
         self._fill_tiles(record)
         self._fill_list(record)
+
+    def set_ai_enabled(self, enabled: bool) -> None:
+        self._ai_enabled = enabled
+        if self._selected:
+            self._show_detail(self._selected)
+
+    def show_explanation(self, check_id: str, result: AIExplanation | str) -> None:
+        """Result of an explain_requested; a str is a reason it is unavailable."""
+        self._ai[check_id] = result
+        if self._selected == check_id:
+            self._show_detail(check_id)
 
     def set_scanning(self, scanning: bool) -> None:
         """While scanning, keep what is on screen but dim it: no layout jump, no skeleton."""
@@ -522,6 +541,10 @@ class DashboardWindow(QWidget):
                 lay.addWidget(copy, 0, Qt.AlignmentFlag.AlignLeft)
             lay.addWidget(_label("Sentinel never runs these for you.", "caption", muted=True))
 
+        if self._ai_enabled:
+            lay.addWidget(_section_label("AI explanation"))
+            lay.addWidget(self._ai_block(a.check_id))
+
         if finding is not None:
             lay.addWidget(_section_label("Finding"))
             lay.addWidget(self._finding_block(finding))
@@ -554,6 +577,42 @@ class DashboardWindow(QWidget):
             entry.addWidget(observation)
             lay.addLayout(entry)
         return block
+
+    def _ai_block(self, check_id: str) -> QWidget:
+        """Model text is untrusted: plain-text labels only, always labelled, never mixed in."""
+        block = QWidget()
+        lay = QVBoxLayout(block)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(SPACE["xs"])
+        result = self._ai.get(check_id)
+        if isinstance(result, AIExplanation):
+            lay.addWidget(_label(result.label, "caption", muted=True))
+            lay.addWidget(_label(result.summary, "body", wrap=True))
+            for step in result.next_steps:
+                lay.addWidget(_label(f"- {step}", "body", wrap=True))
+            lay.addWidget(
+                _label(
+                    "It cannot change the result, severity or evidence above.",
+                    "caption",
+                    muted=True,
+                    wrap=True,
+                )
+            )
+            return block
+        if result is not None:
+            lay.addWidget(_label(result, "small", muted=True, wrap=True))
+        if result is None or result.startswith("AI explanation unavailable"):
+            button = QPushButton("Explain with local AI")
+            button.setFont(make_font("body"))
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip("Runs on this machine via Ollama. Nothing leaves the computer.")
+            button.clicked.connect(lambda: self._request_explanation(check_id))
+            lay.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+        return block
+
+    def _request_explanation(self, check_id: str) -> None:
+        self.show_explanation(check_id, "Asking the local model...")
+        self.explain_requested.emit(check_id)
 
     def _finding_block(self, f: Finding) -> QWidget:
         block = QWidget()

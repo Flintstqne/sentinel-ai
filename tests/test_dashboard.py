@@ -253,3 +253,59 @@ def test_flash_shows_a_confirmation_then_restores_the_normal_header(dash) -> Non
     assert dash._when.text() == "Saved report.html"
     QTest.qWait(150)
     assert dash._when.text() == normal and normal.startswith("Last scan")
+
+
+# ---------------------------------------------------------------- AI explanation section
+
+from sentinel_ai.ai.explainer import AIExplanation  # noqa: E402
+
+EXPL = AIExplanation("FW-01", "<b>The firewall</b> is off.", ("Turn it on.",), "m1", "t")
+
+
+def _ai_buttons(dash):
+    from PySide6.QtWidgets import QPushButton
+
+    return [b for b in dash.findChildren(QPushButton) if b.text() == "Explain with local AI"]
+
+
+def test_ai_section_is_absent_unless_enabled(dash) -> None:
+    dash.show_record(REC)
+    assert "AI EXPLANATION" not in dash.detail_text() and not _ai_buttons(dash)
+
+
+def test_ai_button_emits_a_request_for_the_selected_control_and_shows_progress(dash) -> None:
+    dash.show_record(REC)
+    dash.set_ai_enabled(True)
+    spy = QSignalSpy(dash.explain_requested)
+    _ai_buttons(dash)[0].click()
+    assert spy.count() == 1 and spy.at(0) == ["FW-01"]
+    assert "Asking the local model" in dash.detail_text() and not _ai_buttons(dash)
+
+
+def test_ai_text_is_labelled_plain_text_and_separate_from_the_facts(dash) -> None:
+    dash.show_record(REC)
+    dash.set_ai_enabled(True)
+    before = dash.detail_text()
+    dash.show_explanation("FW-01", EXPL)
+    text = dash.detail_text()
+    assert "AI-generated (m1), may be wrong" in text and "cannot change the result" in text
+    label = next(lb for lb in dash.findChildren(QLabel) if "The firewall" in lb.text())
+    assert label.textFormat() == Qt.TextFormat.PlainText  # model output is never markup
+    assert before.split("AI EXPLANATION")[0] == text.split("AI EXPLANATION")[0]  # facts unchanged
+
+
+def test_unavailable_explanation_says_why_and_offers_a_retry(dash) -> None:
+    dash.show_record(REC)
+    dash.set_ai_enabled(True)
+    dash.show_explanation("FW-01", "AI explanation unavailable: not reachable")
+    assert "not reachable" in dash.detail_text() and _ai_buttons(dash)
+
+
+def test_a_new_scan_discards_old_explanations_but_a_refresh_keeps_them(dash) -> None:
+    dash.show_record(REC)
+    dash.set_ai_enabled(True)
+    dash.show_explanation("FW-01", EXPL)
+    dash.show_record(REC)  # same scan, e.g. after acknowledging
+    assert "The firewall" in dash.detail_text()
+    dash.show_record(replace(REC, scan_id=2))
+    assert "The firewall" not in dash.detail_text()

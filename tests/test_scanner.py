@@ -16,7 +16,7 @@ def store(tmp_path: Path):
     s.close()
 
 
-def test_default_registry_covers_the_six_initial_checks_firewall_first() -> None:
+def test_default_registry_covers_the_seven_checks_firewall_first() -> None:
     assert [c.check_id for c in CHECKS] == [
         "firewall",
         "ssh_exposure",
@@ -24,14 +24,15 @@ def test_default_registry_covers_the_six_initial_checks_firewall_first() -> None
         "auth_failures",
         "security_updates",
         "listening_ports",
+        "wazuh_alerts",
     ]
-    assert len({c.control.control_id for c in CHECKS}) == 6
+    assert len({c.control.control_id for c in CHECKS}) == 7
 
 
 def test_every_check_runs_read_only_on_an_empty_machine_without_crashing(store: Store) -> None:
     """A bare FakeReader has no files and no binaries: nothing may raise, nothing may PASS blindly."""
     rec = run_scan(FakeReader(), store, "h")
-    assert len(rec.assessments) == 6
+    assert len(rec.assessments) == 7
     by_id = {a.check_id: a for a in rec.assessments}
     assert by_id["firewall"].result is Result.WARNING
     assert by_id["auth_failures"].result is Result.UNKNOWN

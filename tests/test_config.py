@@ -95,3 +95,20 @@ def test_the_test_suite_is_isolated_from_the_real_user_directories() -> None:
     for directory in (config_dir(), state_dir(), data_dir()):
         assert home not in directory.parents or "xdg" in str(directory), directory
         assert "xdg" in str(directory), f"{directory} is not an isolated test directory"
+
+
+def test_ai_explanations_are_off_by_default_and_loaded_only_from_valid_types(tmp_path) -> None:
+    assert Config().ai_explanations is False
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"ai_explanations": "yes", "ai_model": 5, "ai_url": ""}))
+    cfg = Config.load(path)
+    assert (cfg.ai_explanations, cfg.ai_model, cfg.ai_url) == (
+        False,
+        "qwen3:4b",
+        "http://127.0.0.1:11434",
+    )
+    path.write_text(
+        json.dumps({"ai_explanations": True, "ai_model": "m", "ai_url": "http://localhost:1"})
+    )
+    cfg = Config.load(path)
+    assert (cfg.ai_explanations, cfg.ai_model, cfg.ai_url) == (True, "m", "http://localhost:1")

@@ -34,7 +34,7 @@ Sentinel AI is a Linux-native security companion for Linux Mint Cinnamon (X11), 
 5. [Architecture](#architecture)
 6. [Engineering notes](#engineering-notes)
 7. [Security model](#security-model)
-8. [Deliberately no AI](#deliberately-no-ai)
+8. [AI, constrained](#ai-constrained)
 9. [Design system](#design-system)
 10. [Install and run](#install-and-run)
 11. [Development](#development)
@@ -50,14 +50,14 @@ Sentinel AI is a Linux-native security companion for Linux Mint Cinnamon (X11), 
 |---|---|
 | **What it is** | A desktop companion (a duck) plus a security assessment engine, dashboard and report exporter |
 | **Platform** | Linux Mint Cinnamon on X11, Python 3.11+, PySide6 |
-| **Checks** | Six read-only controls: host firewall, SSH exposure, SSH hardening, failed logins, security updates, exposed network ports |
+| **Checks** | Seven read-only controls: host firewall, SSH exposure, SSH hardening, failed logins, security updates, exposed network ports, Wazuh SIEM alerts |
 | **Core guarantee** | A `PASS` cannot be constructed without evidence. Unreadable evidence is `UNKNOWN`, never a pass |
 | **Privilege** | Runs as the logged-in user. No root, no background service, never changes the system |
 | **Output** | The duck's state, desktop notifications, a dashboard, a SQLite evidence trail, and self-contained HTML or JSON reports |
-| **AI** | None, by decision. Every sentence the app produces comes from a deterministic check ([why](#deliberately-no-ai)) |
+| **AI** | Optional and off by default: a local Ollama model can explain a finding in plain language, but it cannot create, change or remove evidence, results or severities ([how](#ai-constrained)) |
 | **Runtime dependency** | One: `PySide6-Essentials` |
-| **Tests** | 624 automated tests across 18 files (at the time of writing); key behaviours were mutation-checked by breaking the code and watching the tests fail |
-| **Size** | About 5,400 lines of source in 41 modules, plus about 3,600 lines of tests |
+| **Tests** | 693 automated tests across 20 files (at the time of writing); key behaviours were mutation-checked by breaking the code and watching the tests fail |
+| **Size** | About 5,900 lines of source in 44 modules, plus about 4,000 lines of tests |
 
 ---
 
@@ -272,7 +272,7 @@ Exit codes for `--export`: `0` saved, `1` could not write the file, `2` bad argu
 
 ## The security checks
 
-Six read-only checks, each mapped (illustratively) to a NIST SP 800-53 control family. The mapping is a navigation aid, not a compliance claim, and the report says so.
+Seven read-only checks, each mapped (illustratively) to a NIST SP 800-53 control family. The mapping is a navigation aid, not a compliance claim, and the report says so.
 
 | Control | Question | Reads | Result logic |
 |---|---|---|---|
@@ -282,6 +282,7 @@ Six read-only checks, each mapped (illustratively) to a NIST SP 800-53 control f
 | **AUTH-01** (AC-7, AU-6) | Are failed logins rare? | `/var/log/auth.log`, else `journalctl` | 24-hour window. Below 5 pass, 5 to 99 warning, 100 or more fail. ISO and classic syslog timestamps both parsed |
 | **PATCH-01** (SI-2) | Are security updates pending? | `/var/lib/update-notifier/updates-available` | The file omits the security line when there are none, so a stated total with no security line means zero. Data older than 7 days is `UNKNOWN` |
 | **NET-01** (CM-7, SC-7) | Which services accept outside connections? | `ss -tulnHp` | Wildcard or non-loopback TCP listeners warn; a known-dangerous service (databases, RDP, VNC, SMB, Telnet) is a `FAIL`; UDP is listed but not judged |
+| **SIEM-01** (SI-4, AU-6) | Has Wazuh raised high-level alerts? | `/var/ossec/logs/alerts/alerts.json` | Last 24 hours. Rule level 7 to 11 is a `WARNING`, 12 or more a `FAIL`. Configuration-assessment (`sca`) results are counted but not judged; repeats of a rule are grouped. Wazuh absent, the file unreadable, or no write for 24 hours is `UNKNOWN`: a silent dead feed is not a `PASS`. Alert text is attacker-influenced, so it is truncated and shown only as plain text |
 
 ### The result type
 
@@ -350,7 +351,7 @@ Notifications are capped at three per scan plus a summary line, are never sent w
 ```mermaid
 flowchart LR
     subgraph Evidence["Evidence (read-only)"]
-        R["Reader: files, commands, clock"] --> C["Six checks"]
+        R["Reader: files, commands, clock"] --> C["Seven checks (incl. Wazuh alerts)"]
     end
     C --> A["Assessment: PASS needs evidence"]
     A --> S[("SQLite: assessments and findings")]
@@ -359,6 +360,8 @@ flowchart LR
     RE --> N["Desktop notifications"]
     S --> UI["Dashboard and popup"]
     S --> X["Export: HTML and JSON"]
+    UI -. "one assessment, on request" .-> AI["Local LLM explainer (opt-in, loopback only)"]
+    AI -. "labelled text, grounding-checked" .-> UI
     M --> W["Companion window"]
     P["Physics and Wanderer"] --> W
 ```
@@ -379,13 +382,15 @@ src/sentinel_ai/
   monitoring/
     model.py             Result, Severity, Evidence, Assessment, Finding
     reader.py            the only door to the system: read-only Reader + LocalReader
-    checks/              firewall, ssh, auth, updates, ports, and the registry
+    checks/              firewall, ssh, auth, updates, ports, wazuh, and the registry
     scanner.py           runs every check; a crash becomes ERROR, never a PASS
     store.py             SQLite: assessments (audit trail) and findings (lifecycle)
     reaction.py          pure: scan result -> duck state, tone, notifications
     summary.py           labels, worst-first order, the lead sentence
     export.py            audit evidence reports (one dict, two renderers)
     monitor.py           Qt: scans on a worker thread and on a schedule
+  ai/
+    explainer.py         opt-in Ollama explanations: loopback only, JSON schema, grounding check
   platform/              X11 desktop-layer adapter, reduced-motion resolution
   ui/                    design tokens, fonts, icons, dashboard, status popup
 ```
@@ -407,7 +412,7 @@ More in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Testing
 
-624 tests, in layers: pure unit tests for everything Qt-free (including seeded property-style tests, such as "the wanderer never leaves its bounds across thousands of ticks and many seeds"), offscreen Qt tests that drive the real window with synthetic mouse events, a test that launches the genuine `main()` in a child process and quits it, and tests that parse the generated HTML back to prove hostile input never becomes a tag or an event handler.
+693 tests, in layers: pure unit tests for everything Qt-free (including seeded property-style tests, such as "the wanderer never leaves its bounds across thousands of ticks and many seeds"), offscreen Qt tests that drive the real window with synthetic mouse events, a test that launches the genuine `main()` in a child process and quits it, and tests that parse the generated HTML back to prove hostile input never becomes a tag or an event handler.
 
 **Mutation checking.** A passing test proves little if it cannot fail. For the behaviours that matter, I deliberately broke the code (removed the clamp, inverted the direction, dropped the escaping, ignored the floor) and checked that a test failed. That process found real weaknesses in tests I had already written, for example a "restrictive security policy" test that would have passed with an inert tag.
 
@@ -437,15 +442,28 @@ Several of these were invisible to unit tests and showed up only on a real deskt
 | Writes to the system | None. Checks receive a read-only `Reader`; commands use fixed argument lists (no shell) with timeouts and a fixed locale |
 | Report files | Atomic write, owner-only (`0600`), because evidence can name users and addresses |
 | Identity | The host is a hostname plus a short hash of the machine-id. The raw machine-id is never stored or logged |
-| Network | The app makes no network connections of its own. Fonts are bundled; notifications use the local session bus |
+| Network | The app makes no network connections of its own, except the optional AI explainer, which talks only to a loopback address, bypasses any configured proxy, and is off by default. Fonts are bundled; notifications use the local session bus |
 | Dependencies | One runtime dependency (`PySide6-Essentials`) |
 | Second instance | A lock file prevents two copies running |
 
 ---
 
-## Deliberately no AI
+## AI, constrained
 
-The product is called Sentinel *AI*, and it contains no AI model. That is a design decision, not a gap. In an audit tool, an invented finding or a confidently wrong explanation is worse than a plain, correct one, and the local language models available while building this were prone to exactly that. So every assessment, explanation and recommendation is written by the deterministic check that collected the evidence, the exported reports state that no AI generated or altered any content, and the type system keeps observations separate from interpretation so that the facts beneath a conclusion cannot be changed by it. A model could later be added as a clearly labelled, optional reader that cannot alter evidence; the seam exists, and nothing depends on it.
+An earlier version of this section explained why Sentinel contained no AI: in an audit tool, an invented finding or a confidently wrong explanation is worse than a plain, correct one. That reasoning still stands, and it is why the AI that has since been added is built as a *reader* of findings, never an author of them.
+
+**What it does.** With "AI explanations (local)" switched on in the duck's menu (off by default), each control in the dashboard gets an "Explain with local AI" button. It sends that one assessment to a local [Ollama](https://ollama.com) model (`qwen3:4b` by default, chosen because it fits a 6 GB laptop GPU) and shows a plain-language summary and next steps under the facts.
+
+**How it is constrained** ([`ai/explainer.py`](src/sentinel_ai/ai/explainer.py)):
+
+* **It cannot change the facts.** The explanation is a separate frozen `AIExplanation`. It is never stored on the `Assessment` or its `Evidence`, never written to the database, and no result, severity or finding depends on it. Exported reports still contain no AI text, and still say so.
+* **Local only.** The model address must be plain `http` to a loopback host; anything else is refused before a request is made. The request bypasses any `http_proxy` in the environment, so the evidence never leaves the machine.
+* **Fixed output shape.** The reply is constrained with a JSON schema (Ollama structured outputs) and then validated: wrong shape, wrong types or over-long text means nothing is shown, never raw model output.
+* **Grounding check.** A reply that names a file path, IP address, port or quoted username that does not appear in the assessment is discarded, with the reason shown. The model may rephrase the facts; it may not introduce new ones.
+* **Untrusted text.** Model output is displayed as plain text only, and every explanation is labelled "AI-generated (model), may be wrong" and "It cannot change the result, severity or evidence above."
+* **Fails safe.** If Ollama is down, slow (60 s timeout) or wrong, the dashboard says "AI explanation unavailable" and why. Scans never wait for or depend on it, and it runs on a worker thread.
+
+**What it does not catch.** The grounding check stops invented *identifiers*, not wrong *reasoning* about real ones. In testing, the model correctly listed real open ports but then guessed how one of them was bound, and suggested an SSH firewall rule on a machine with no SSH server. That is exactly why the text is labelled, kept apart from the evidence, and never feeds a decision.
 
 ---
 
@@ -512,7 +530,7 @@ cp packaging/sentinel-ai.png ~/.local/share/icons/hicolor/128x128/apps/
 ## Development
 
 ```bash
-.venv/bin/python -m pytest                       # 624 tests; the Qt ones run offscreen
+.venv/bin/python -m pytest                       # 693 tests; the Qt ones run offscreen
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
 # Regenerate every image and the sample reports used in this README:
@@ -549,11 +567,13 @@ The planned scope is complete:
 | Environment assessment and the unprivileged-visibility analysis | Done |
 | Companion: state machine, tray, desktop placement, wandering | Done |
 | Six real read-only checks feeding the duck and notifications | Done |
+| Wazuh alerts as a seventh evidence source | Done (reports `UNKNOWN` until Wazuh is installed; see [`docs/WAZUH_SETUP.md`](docs/WAZUH_SETUP.md)) |
+| Opt-in local AI explanations with grounding checks | Done |
 | Findings dashboard with evidence and a finding lifecycle | Done |
 | Audit evidence export (HTML and JSON) | Done |
 | Companion physics: carry, throw, fall, land | Done |
 
-Possible future checks, none promised: disk encryption, automatic updates, `sudo` configuration. Local AI is out of scope by decision.
+Possible future checks, none promised: disk encryption, automatic updates, `sudo` configuration.
 
 ---
 

@@ -89,6 +89,7 @@ def test_menu_has_every_item_the_handoff_asks_for(env) -> None:
         "Export report...",
         "Pause monitoring",
         "Walk around desktop",
+        "AI explanations (local)",
         "View alerts",
         "Quit",
     ]
@@ -418,7 +419,7 @@ def test_cli_export_with_scan_writes_both_formats(monkeypatch, tmp_path, capsys)
     # without --scan it exports what is already stored, with no new scan
     assert cli(monkeypatch, tmp_path, "--export", str(tmp_path / "r.json")) == 0
     data = json.loads((tmp_path / "r.json").read_text())
-    assert data["scan"]["scan_id"] == 1 and data["summary"]["controls_total"] == 6
+    assert data["scan"]["scan_id"] == 1 and data["summary"]["controls_total"] == 7
 
 
 def test_cli_export_refuses_cleanly_when_there_is_nothing_to_export(monkeypatch, tmp_path, capsys):
@@ -441,3 +442,45 @@ def test_cli_export_reports_an_unwritable_location(monkeypatch, tmp_path, capsys
     blocker.write_text("x")
     assert cli(monkeypatch, tmp_path, "--export", str(blocker / "r.html")) == 1
     assert "could not write the report" in capsys.readouterr().err
+
+
+def test_explain_request_with_ai_off_never_calls_the_model(env, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(app_module.explainer, "explain", lambda *a, **k: calls.append(a))
+    env.run_scan()
+    env.app._on_explain_requested(env.app.last_record.assessments[0].check_id)
+    QThreadPool.globalInstance().waitForDone(2000)
+    assert calls == []
+
+
+def test_explain_runs_off_the_ui_thread_and_failures_become_a_message(
+    qapp, monkeypatch, tmp_path
+) -> None:
+    from sentinel_ai.ai.explainer import ExplanationUnavailable
+
+    e = Env(
+        qapp,
+        monkeypatch,
+        tmp_path,
+        ai_explanations=True,
+        ai_model="mx",
+        ai_url="http://localhost:1",
+    )
+    try:
+        seen = []
+
+        def fake(a, model, url):
+            seen.append((threading.current_thread() is threading.main_thread(), model, url))
+            raise ExplanationUnavailable("down")
+
+        monkeypatch.setattr(app_module.explainer, "explain", fake)
+        e.run_scan()
+        shown = []
+        monkeypatch.setattr(e.app.dashboard, "show_explanation", lambda c, r: shown.append(r))
+        e.app._on_explain_requested(e.app.last_record.assessments[0].check_id)
+        assert wait_until(lambda: shown)
+        assert seen == [(False, "mx", "http://localhost:1")]
+        assert shown == ["AI explanation unavailable: down"] and not e.app._explain_jobs
+    finally:
+        QThreadPool.globalInstance().waitForDone(5000)
+        e.app.companion.close()

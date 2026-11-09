@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from sentinel_ai.monitoring.checks import auth, firewall, ports, ssh, updates
+from sentinel_ai.monitoring.checks import auth, firewall, ports, ssh, updates, wazuh
 from sentinel_ai.monitoring.model import Assessment, Control
 from sentinel_ai.monitoring.reader import Reader
 
@@ -25,4 +25,5 @@ CHECKS: tuple[CheckSpec, ...] = (
     CheckSpec("auth_failures", auth.CONTROL, auth.check),
     CheckSpec("security_updates", updates.CONTROL, updates.check),
     CheckSpec("listening_ports", ports.CONTROL, ports.check),
+    CheckSpec("wazuh_alerts", wazuh.CONTROL, wazuh.check),
 )

@@ -8,18 +8,19 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QPoint, QThreadPool
+from PySide6.QtCore import QLockFile, QObject, QPoint, QRunnable, QThreadPool, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QSystemTrayIcon
 
 from sentinel_ai import __version__
+from sentinel_ai.ai import explainer
 from sentinel_ai.companion.render import canvas_size, tray_icon
 from sentinel_ai.companion.state_machine import State
 from sentinel_ai.companion.window import CompanionWindow, clamp_to_screens
 from sentinel_ai.config import Config, data_dir
 from sentinel_ai.logging_setup import configure_logging
 from sentinel_ai.monitoring import export
-from sentinel_ai.monitoring.model import Severity
+from sentinel_ai.monitoring.model import Assessment, Severity
 from sentinel_ai.monitoring.monitor import Monitor
 from sentinel_ai.monitoring.reaction import Notification, react
 from sentinel_ai.monitoring.reader import LocalReader
@@ -45,6 +46,31 @@ _TRAY_ICON = {
 }
 
 
+class _ExplainSignals(QObject):
+    done = Signal(object, str, object)  # job, check_id, AIExplanation | str
+
+
+class _ExplainJob(QRunnable):
+    """One model call off the UI thread. A failure becomes a message; it never touches a scan."""
+
+    def __init__(self, assessment: Assessment, model: str, url: str) -> None:
+        super().__init__()
+        self.setAutoDelete(False)  # we hold it until done arrives, as Monitor does
+        self.signals = _ExplainSignals()
+        self._args = (assessment, model, url)
+
+    def run(self) -> None:
+        assessment, model, url = self._args
+        try:
+            result: object = explainer.explain(assessment, model=model, url=url)
+        except explainer.ExplanationUnavailable as exc:
+            result = f"AI explanation unavailable: {exc}"
+        except Exception as exc:  # noqa: BLE001 - never let the optional layer crash the app
+            log.exception("explanation failed")
+            result = f"AI explanation unavailable: {type(exc).__name__}"
+        self.signals.done.emit(self, assessment.check_id, result)
+
+
 def default_db_path() -> Path:
     return data_dir() / "sentinel.db"
 
@@ -67,6 +93,9 @@ class SentinelApp:
         self.dashboard.scan_requested.connect(self._on_run_scan)
         self.dashboard.acknowledge_requested.connect(self._on_acknowledge)
         self.dashboard.export_requested.connect(self._on_export_requested)
+        self.dashboard.explain_requested.connect(self._on_explain_requested)
+        self.dashboard.set_ai_enabled(config.ai_explanations)
+        self._explain_jobs: set[_ExplainJob] = set()
         self.status_panel = StatusPanel()
         self.status_panel.open_dashboard_requested.connect(self.show_dashboard)
 
@@ -78,6 +107,9 @@ class SentinelApp:
         self._roam_action = self._action(
             "Walk around desktop", self._on_roam_toggled, True, checked=config.roam
         )
+        self._ai_action = self._action(
+            "AI explanations (local)", self._on_ai_toggled, True, checked=config.ai_explanations
+        )
         self._alerts_action = self._action("View alerts", self.show_dashboard)
         self.menu.addActions(
             [
@@ -86,6 +118,7 @@ class SentinelApp:
                 self._export_action,
                 self._pause_action,
                 self._roam_action,
+                self._ai_action,
                 self._alerts_action,
             ]
         )
@@ -312,6 +345,29 @@ class SentinelApp:
         self.config.roam = roam
         self.config.save()
         log.info("roaming enabled" if roam else "roaming disabled")
+
+    def _on_ai_toggled(self, enabled: bool) -> None:
+        self.config.ai_explanations = enabled
+        self.config.save()
+        self.dashboard.set_ai_enabled(enabled)
+        log.info("ai explanations toggled", extra={"enabled": enabled})
+
+    def _on_explain_requested(self, check_id: str) -> None:
+        record = self.last_record
+        assessment = next(
+            (a for a in (record.assessments if record else ()) if a.check_id == check_id), None
+        )
+        if assessment is None or not self.config.ai_explanations:
+            self.dashboard.show_explanation(check_id, "AI explanation unavailable: turned off")
+            return
+        job = _ExplainJob(assessment, self.config.ai_model, self.config.ai_url)
+        job.signals.done.connect(self._on_explained)
+        self._explain_jobs.add(job)
+        QThreadPool.globalInstance().start(job)
+
+    def _on_explained(self, job: _ExplainJob, check_id: str, result: object) -> None:
+        self._explain_jobs.discard(job)
+        self.dashboard.show_explanation(check_id, result)
 
     def _remember_position(self, pos: QPoint) -> None:
         self.config.companion_x, self.config.companion_y = pos.x(), pos.y()
